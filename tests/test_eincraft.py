@@ -329,12 +329,24 @@ def test_equal():
     A2 = EinTen("A2", (3, 3))
     B2 = EinTen("B2", (3, 3))
     A3 = EinTen("A3", (3, 3, 3))
+    A4 = EinTen("A4", (3, 3, 3, 3))
+    B4 = EinTen("B4", (3, 3, 3, 3))
 
     O = EinTen.empty()
     P = EinTen.empty()
 
+    O.ij = A2.ij
+    P.ij = A2.ij
+    P.ii = A2.ik
+    assert O != P
+
     O = A2.ij * B2.ij * B2.ij * B2.kk
     P = A2.ij * B2.ij * B2.ij * B2.kk
+    assert O == P
+
+    O.ij = A2.ij
+    P.ij = A2.ij
+    P.ii = A2.ii
     assert O == P
 
     O = A3.ijk * A3.kji
@@ -391,20 +403,60 @@ def test_equal():
 
     O.ij = A2.ij * B2.ij * B2.ij * B2.kk
     P.ij = A2.ij * B2.ij * B2.ij * B2.kk
+    P.ii = A2.ii * B2.ii * B2.ii * B2.kk
+    assert O == P
+
+    O.ij = A2.ij * B2.ij * B2.ij * B2.kk
+    P.ij = A2.ij * B2.ij * B2.ij * B2.kk
+    P.ii = A2.ik * B2.ii * B2.ii * B2.kk
+    assert O != P
+
+    O.ij = A2.ij
+    O.ii = A2.ik
+    P.ij = A2.ij
+    P.ii = A2.ii
+    assert O != P
+
+    O.ijk = A3.ijk
+    P.ijk = A3.ijk
+    O.iij = A3.iij
+    P.iij = A3.ijk
+    assert O != P
+
+    O.ijkl = A4.ijkl
+    P.ijkl = A4.ijkl
+    O.iijj = B4.ikjj
+    P.iijj = B4.iijk
+    assert O != P
+
+    O.ijkl = A4.ijkl
+    O.iijj = B4.ikjj
+    O.ijji = B4.ikjj
+    P.ijkl = A4.ijkl
+    P.iijj = B4.ikjj
+    P.ijji = B4.ikjj
     assert O == P
 
 
 def test_remove_diagonal():
     A2 = EinTen("A2", (3, 3))
     B2 = EinTen("B2", (3, 3))
+    A1 = EinTen("A1", (3,))
     O = EinTen.empty()
 
     a2 = np.random.rand(3, 3)
     b2 = np.random.rand(3, 3)
+    a1 = np.random.rand(3)
 
     O.ij = A2.ij
     O.ii -= O.ii
     assert np.allclose(O.evaluate(A2=a2), a2 - np.diag(np.diag(a2)))
+
+    O.ij = A2.ik * A1.k * A2.jl * A1.l
+    O.ii -= O.ii
+    o = np.einsum("ik,k,jl,l->ij", a2, a1, a2, a1)
+    o[np.arange(3), np.arange(3)] = 0.0
+    assert np.allclose(O.evaluate(A2=a2, B2=b2, A1=a1), o)
 
     O.ijk = A2.ij * B2.jk
     O.iij -= O.iij
@@ -484,7 +536,112 @@ def test_remove_diagonal():
         string = "".join(string)
         O[string] -= O[string]
 
+    # reassign should change nothing
+    O["".join([chr(97 + i) for i in range(rank)])] = O["".join([chr(97 + i) for i in range(rank)])]
+
     assert np.allclose(O.evaluate(D=d), c)
+
+    O.ij = A2.ik * A1.k * A2.jl * A1.l
+    O.ii -= O.ii
+    # reassign should change nothing
+    O.ij = O.ij
+    o = np.einsum("ik,k,jl,l->ij", a2, a1, a2, a1)
+    o[np.arange(3), np.arange(3)] = 0.0
+    assert np.allclose(O.evaluate(A2=a2, B2=b2, A1=a1), o)
+
+
+def test_set_diagonal():
+
+    A2 = EinTen("A2", (3, 3))
+    B2 = EinTen("B2", (3, 3))
+    A3 = EinTen("A3", (3, 3, 3))
+    B3 = EinTen("B3", (3, 3, 3))
+    A4 = EinTen("A4", (3, 3, 3, 3))
+    B4 = EinTen("B4", (3, 3, 3, 3))
+    O = EinTen.empty()
+
+    a2 = np.random.rand(3, 3)
+    b2 = np.random.rand(3, 3)
+    a3 = np.random.rand(3, 3, 3)
+    b3 = np.random.rand(3, 3, 3)
+    a4 = np.random.rand(3, 3, 3, 3)
+    b4 = np.random.rand(3, 3, 3, 3)
+
+    O.ij = A2.ij
+    O.ii = B2.ii
+    o = a2.copy()
+    o[np.arange(3), np.arange(3)] = b2[np.arange(3), np.arange(3)]
+    assert np.allclose(O.evaluate(A2=a2, B2=b2), o)
+
+    O.ij = A2.ij
+    O.ii = B2.ik
+    o = a2.copy()
+    for i in range(3):
+        o[i, i] = np.sum(b2[i, :])
+    assert np.allclose(O.evaluate(A2=a2, B2=b2), o)
+
+    O.ij = A2.ij
+    O.ii = B2.ik
+    o = a2.copy()
+    for i in range(3):
+        o[i, i] = np.sum(b2[i, :])
+    assert np.allclose(O.evaluate(A2=a2, B2=b2), o)
+
+    O.ijk = A3.ijk
+    O.iii = B3.iik
+    o = a3.copy()
+    for i in range(3):
+        o[i, i, i] = np.sum(b3[i, i, :])
+    assert np.allclose(O.evaluate(A3=a3, B3=b3), o)
+
+    O.ijk = A3.ijk
+    O.iii = B3.iii
+    O.iij = B3.jji
+    o = a3.copy()
+    for i in range(3):
+        o[i, i, i] = b3[i, i, i]
+    for i in range(3):
+        for j in range(3):
+            o[i, i, j] = b3[j, j, i]
+    assert np.allclose(O.evaluate(A3=a3, B3=b3), o)
+
+    O.ijkl = A4.ijkl
+    O.iijj = B4.ikjj
+
+    o = a4.copy()
+    for i in range(3):
+        for j in range(3):
+            o[i, i, j, j] = np.sum(b4[i, :, j, j])
+
+    assert np.allclose(O.evaluate(A4=a4, B4=b4), o)
+
+    O.ijkl = A4.ijkl
+    O.iijj = B4.ikjj
+    O.ijji = B4.iijj
+
+    o = a4.copy()
+    for i in range(3):
+        for j in range(3):
+            o[i, i, j, j] = np.sum(b4[i, :, j, j])
+    for i in range(3):
+        for j in range(3):
+            o[i, j, j, i] = np.sum(b4[i, i, j, j])
+
+    assert np.allclose(O.evaluate(A4=a4, B4=b4), o)
+
+    O.ijkl = A4.ijkl
+    O.iijj = B4.ikjj
+    O.ijji = B4.ikjk
+
+    o = a4.copy()
+    for i in range(3):
+        for j in range(3):
+            o[i, i, j, j] = np.sum(b4[i, :, j, j])
+    for i in range(3):
+        for j in range(3):
+            o[i, j, j, i] = np.sum(b4[i, np.arange(3), j, np.arange(3)])
+
+    assert np.allclose(O.evaluate(A4=a4, B4=b4), o)
 
 
 def test_substitute():
@@ -553,7 +710,7 @@ def test_substitute():
     )
 
 
-def test_set_diagonal():
+def test_set_as_diagonal():
 
     A2 = EinTen("A2", (3, 3))
     B2 = EinTen("B2", (3, 3))
@@ -565,19 +722,19 @@ def test_set_diagonal():
     a2[:] = 1.0
 
     O.ij = A2.ij * B2.ij
-    O.set_diagonal(A2)
+    O.set_as_diagonal(A2)
     assert np.allclose(O.evaluate(A2=a2, B2=b2), np.diag(np.diag(b2) * a2))
 
     O.ij = A2.ij * B2.ij
-    O.set_diagonal(2.0 * A2)
+    O.set_as_diagonal(2.0 * A2)
     assert np.allclose(O.evaluate(A2=a2, B2=b2), 0.5 * np.diag(np.diag(b2) * a2))
 
     O.ij = A2.ij
-    O.set_diagonal(A2)
+    O.set_as_diagonal(A2)
     assert np.allclose(O.evaluate(A2=a2, B2=b2), np.diag(a2))
 
     O.ik = A2.ij * B2.jk
-    O.set_diagonal(A2)
+    O.set_as_diagonal(A2)
     assert np.allclose(O.evaluate(A2=a2, B2=b2), np.einsum("i,ik->ik", a2, b2))
 
 
