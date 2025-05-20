@@ -254,8 +254,8 @@ class EinTenContraction:
         result += ")"
         result += "".join([idx_to_str(i) for i in self.out_indices])
 
-        idx_to_ss = {idx: ss for ss, idxs in ss_to_idx.items() for idx in idxs}
-        result += " {" + ",".join(f"{idx}➞{ss}" for idx, ss in idx_to_ss.items()) + "}"
+        idx_to_ss = {idxs[0]: ss for ss, idxs in ss_to_idx.items()}
+        result += " {" + ", ".join(f"{idx_to_idx_for_print[idx]}➞{ss}" for idx, ss in idx_to_ss.items()) + "}"
 
         return result
 
