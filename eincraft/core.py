@@ -332,18 +332,25 @@ class EinTenContraction:
         return new_addends
 
     def simplify(self):
-        # adjust the indices
+        # Reduce the number of the internal indices
+        # the internal indices are the out_indices and the delta indices
+        # Delta is necessary to keep in the order or the out indices for subsequential assignments
+        # for instance A.ijj -= A.ijj will create a delta
+        # if after i use A.ijk i should remember that k is in the delta (because the out indices are i j)
+        # TODO: refix out_indices to be always in the reasonable order (0 1 2 3 ...)
+
+        internal_indices = set(self.out_indices) | set(self.delta) | set(self.delta.values())
+
         old_to_new_internal_indices = {}
         i = 0
         for idxs, _ in self.indices_and_tensors:
             for idx in idxs:
                 if (
-                    idx not in self.out_indices
-                    and idx not in self.delta
+                    idx not in internal_indices
                     and idx not in old_to_new_internal_indices
                 ):
 
-                    while i in self.out_indices or i in self.delta:
+                    while i in internal_indices:
                         i += 1
 
                     old_to_new_internal_indices[idx] = i
@@ -356,6 +363,11 @@ class EinTenContraction:
             )
             new_indices_and_tensors.append((new_indices, tensor))
         self.indices_and_tensors = new_indices_and_tensors
+
+        new_delta = {}
+        for k, v in self.delta.items():
+            new_delta[old_to_new_internal_indices.get(k, k)] = old_to_new_internal_indices.get(v, v)
+        self.delta = new_delta
 
     def set_as_diagonal(self, base_tensor, to_identity=False):
         """
@@ -643,6 +655,7 @@ class EinTenContraction:
 
         if out_indices is None:
             out_indices = tuple([local_old_to_new_indices[i] for i in self.out_indices])
+        # apply the delta to the out_indices
         out_indices = tuple(new_delta.get(i, i) for i in out_indices)
 
         return EinTenContraction(
