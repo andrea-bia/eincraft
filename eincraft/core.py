@@ -741,7 +741,7 @@ class EinTen:
 
     def get_max_idx(self):
         if len(self.addends) == 0:
-            return -1
+            return len(self.ss_to_idx)
         return max([a.max_internal_index for a in self.addends])
 
     @classmethod
