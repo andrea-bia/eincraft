@@ -1,0 +1,12 @@
+image: python:3.11
+
+stages:
+  - test
+
+test:
+  stage: test
+  before_script:
+    - pip install numpy pytest
+    - pip install .
+  script:
+    - pytest -v
