@@ -10,6 +10,12 @@ To install EinCraft, you can use pip:
 pip install .
 ```
 
+If you want to enable support for the optional `opt_einsum` backend, install it with:
+
+```bash
+pip install .[opt_einsum]
+```
+
 
 ## Usage
 
