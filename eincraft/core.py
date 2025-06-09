@@ -1,6 +1,20 @@
-import numpy as np
-import opt_einsum as oe
 from collections import defaultdict
+
+import numpy as np
+
+try:
+    import opt_einsum as oe
+except Exception:  # pragma: no cover - optional dependency
+    oe = None
+
+
+def disable_opt_einsum():
+    """
+    Disable the opt_einsum library if it is installed.
+    This is useful for testing purposes or when you want to avoid using opt_einsum.
+    """
+    global oe
+    oe = None
 
 
 def find_root(key, mapping):
@@ -15,9 +29,7 @@ def find_root(key, mapping):
         if current in visited:
             # Cycle detected: select a representative from the cycle.
             cycle = visited[visited.index(current) :]  # the cycle part of the chain
-            rep = min(
-                cycle
-            )  # choose canonical representative (could be any consistent choice)
+            rep = min(cycle)  # choose canonical representative (could be any consistent choice)
             # Update mapping for all keys in the cycle.
             for node in cycle:
                 mapping[node] = rep
@@ -35,9 +47,7 @@ def find_root(key, mapping):
 
 def _idx_to_str(idx):
     if idx > 9:
-        return (
-            chr(0x208D) + "".join(chr(0x2080 + int(i)) for i in str(idx)) + chr(0x208E)
-        )
+        return chr(0x208D) + "".join(chr(0x2080 + int(i)) for i in str(idx)) + chr(0x208E)
     return chr(0x2080 + idx)
 
 
@@ -62,9 +72,7 @@ class EinTenBaseTensor:
 
 class EinTenContraction:
 
-    def __init__(
-        self, out_indices, indices_and_tensors, prefactor=1.0, delta=None
-    ) -> None:
+    def __init__(self, out_indices, indices_and_tensors, prefactor=1.0, delta=None) -> None:
         # the list of indices and tensors
         self.indices_and_tensors = indices_and_tensors
         # the output indices
@@ -80,9 +88,7 @@ class EinTenContraction:
         self.opt_einsum_path = None
 
         if self.indices_and_tensors:
-            self.max_internal_index = max(
-                [max(indices) for indices, _ in self.indices_and_tensors]
-            )
+            self.max_internal_index = max([max(indices) for indices, _ in self.indices_and_tensors])
         else:
             self.max_internal_index = -1
 
@@ -228,14 +234,16 @@ class EinTenContraction:
             ]
         )
         if self.delta:
-            result += "".join(
-                f"δ{idx_to_str(k)}{idx_to_str(v)}" for k, v in self.delta.items()
-            )
+            result += "".join(f"δ{idx_to_str(k)}{idx_to_str(v)}" for k, v in self.delta.items())
         result += ")"
         result += "".join([idx_to_str(i) for i in self.out_indices])
 
         idx_to_ss = {idxs[0]: ss for ss, idxs in ss_to_idx.items()}
-        result += " {" + ", ".join(f"{idx_to_idx_for_print[idx]}➞{ss}" for idx, ss in idx_to_ss.items()) + "}"
+        result += (
+            " {"
+            + ", ".join(f"{idx_to_idx_for_print[idx]}➞{ss}" for idx, ss in idx_to_ss.items())
+            + "}"
+        )
 
         return result
 
@@ -251,9 +259,7 @@ class EinTenContraction:
             ]
         )
         if self.delta:
-            result += "".join(
-                f"δ{_idx_to_str(k)}{_idx_to_str(v)}" for k, v in self.delta.items()
-            )
+            result += "".join(f"δ{_idx_to_str(k)}{_idx_to_str(v)}" for k, v in self.delta.items())
         result += ")"
         result += "".join([_idx_to_str(i) for i in self.out_indices])
 
@@ -276,9 +282,7 @@ class EinTenContraction:
         old_tensor = old_tensor.addends[0].indices_and_tensors[0][1]
 
         new_addends = [
-            EinTenContraction(
-                self.out_indices, [], prefactor=self.prefactor, delta=self.delta
-            )
+            EinTenContraction(self.out_indices, [], prefactor=self.prefactor, delta=self.delta)
         ]
         for indices, ten in self.indices_and_tensors:
             if ten == old_tensor:
@@ -325,10 +329,7 @@ class EinTenContraction:
         i = 0
         for idxs, _ in self.indices_and_tensors:
             for idx in idxs:
-                if (
-                    idx not in internal_indices
-                    and idx not in old_to_new_internal_indices
-                ):
+                if idx not in internal_indices and idx not in old_to_new_internal_indices:
 
                     while i in internal_indices:
                         i += 1
@@ -338,9 +339,7 @@ class EinTenContraction:
 
         new_indices_and_tensors = []
         for indices, tensor in self.indices_and_tensors:
-            new_indices = tuple(
-                [old_to_new_internal_indices.get(idx, idx) for idx in indices]
-            )
+            new_indices = tuple([old_to_new_internal_indices.get(idx, idx) for idx in indices])
             new_indices_and_tensors.append((new_indices, tensor))
         self.indices_and_tensors = new_indices_and_tensors
 
@@ -363,9 +362,7 @@ class EinTenContraction:
                 f"Tensor {base_tensor} is not a matrix or is not square, shape {base_tensor.shape}"
             )
         new_shape = (base_tensor.shape[0],)
-        new_base_tensor = EinTenBaseTensor(
-            base_tensor.name, new_shape, base_tensor.constant
-        )
+        new_base_tensor = EinTenBaseTensor(base_tensor.name, new_shape, base_tensor.constant)
 
         prefactor = self.prefactor
         indices_and_tensors = []
@@ -401,8 +398,10 @@ class EinTenContraction:
         )
 
     def evaluate(self, memory_limit=None, **kwargs):
-        return self.evaluate_numpy(**kwargs)
-        #return self.evaluate_opt_einsum(memory_limit=memory_limit, **kwargs)
+        if oe is None:
+            return self.evaluate_numpy(**kwargs)
+        else:
+            return self.evaluate_opt_einsum(memory_limit=memory_limit, **kwargs)
 
     def evaluate_opt_einsum(self, memory_limit=None, **kwargs):
         # Construct the einsum arguments
@@ -428,7 +427,9 @@ class EinTenContraction:
 
     def get_opt_einsum_path(self, args, constants, memory_limit=None):
         if self.opt_einsum_path is None:
-            self.opt_einsum_path = oe.contract_expression(*args, constants=constants, memory_limit=memory_limit)
+            self.opt_einsum_path = oe.contract_expression(
+                *args, constants=constants, memory_limit=memory_limit
+            )
         return self.opt_einsum_path
 
     def evaluate_numpy(self, **kwargs):
@@ -437,9 +438,7 @@ class EinTenContraction:
         """
 
         # Construct the einsum arguments
-        args = [
-            (kwargs[ten.name], indices) for indices, ten in self.indices_and_tensors
-        ]
+        args = [(kwargs[ten.name], indices) for indices, ten in self.indices_and_tensors]
         # Flatten the list
         args = [arg for pair in args for arg in pair]
 
@@ -465,9 +464,7 @@ class EinTenContraction:
             unique_indices = list(set(self.out_indices))
 
             args.append(unique_indices)
-            result_tmp = self.prefactor * np.einsum(
-                *args, optimize=self.get_einpath(args)
-            )
+            result_tmp = self.prefactor * np.einsum(*args, optimize=self.get_einpath(args))
 
             # copy the result in the right place
             result = np.zeros(result_shape, dtype=result_tmp.dtype)
@@ -647,9 +644,7 @@ class EinTenContraction:
 
     def merge(self, other):
         if isinstance(other, EinTenContraction):
-            new_indices_and_tensors = (
-                self.indices_and_tensors + other.indices_and_tensors
-            )
+            new_indices_and_tensors = self.indices_and_tensors + other.indices_and_tensors
             new_prefactor = self.prefactor * other.prefactor
             new_delta = self.delta | other.delta
             new_out_indices = self.out_indices + other.out_indices
@@ -660,9 +655,7 @@ class EinTenContraction:
                 delta=new_delta,
             )
         else:
-            raise ValueError(
-                f"Multiplication with type {type(other)} is not supported."
-            )
+            raise ValueError(f"Multiplication with type {type(other)} is not supported.")
 
     def __mul__(self, other):
         return EinTenContraction(
@@ -808,9 +801,7 @@ class EinTen:
 
     def __repr__(self):
         if self.ss_to_idx:
-            return "\n".join(
-                [a.to_string(ss_to_idx=self.ss_to_idx) for a in self.addends]
-            )
+            return "\n".join([a.to_string(ss_to_idx=self.ss_to_idx) for a in self.addends])
         return "\n".join([a.to_string() for a in self.addends])
 
     def __getattr__(self, subscripts) -> "EinTen":
@@ -863,7 +854,6 @@ class EinTen:
             subscripts = (subscripts,)
         self.assign(subscripts, value)
 
-
     def assign(self, subscripts, other):
         if not isinstance(other, EinTen):
             raise ValueError(f"Assignment with type {type(other)} is not supported.")
@@ -890,7 +880,10 @@ class EinTen:
         if (
             len(set(subscripts)) == len(subscripts)
             and set(other.ss_to_idx.keys()) == set(subscripts)
-            and all(len(other.ss_to_idx[ss]) == 1 and other.ss_to_idx[ss][0] == subs_index[ss] for ss in subscripts)
+            and all(
+                len(other.ss_to_idx[ss]) == 1 and other.ss_to_idx[ss][0] == subs_index[ss]
+                for ss in subscripts
+            )
             and all(a.out_indices == new_indices and not a.delta for a in other.addends)
         ):
             self.addends = [a.copy() for a in other.addends]
@@ -923,16 +916,12 @@ class EinTen:
 
             for addend in diag.addends:
                 addends.append(
-                    addend.reduce(
-                        diag_to_self_indices, out_indices=new_indices, delta=delta
-                    )
+                    addend.reduce(diag_to_self_indices, out_indices=new_indices, delta=delta)
                 )
 
             for addend in other.addends:
                 addends.append(
-                    addend.reduce(
-                        other_to_self_indices, out_indices=new_indices, delta=delta
-                    )
+                    addend.reduce(other_to_self_indices, out_indices=new_indices, delta=delta)
                 )
 
             self.addends += addends
@@ -940,15 +929,13 @@ class EinTen:
             addends = []
 
             for addend in other.addends:
-                addends.append(
-                    addend.reduce(other_to_self_indices, out_indices=new_indices)
-                )
+                addends.append(addend.reduce(other_to_self_indices, out_indices=new_indices))
 
             self.addends = addends
 
         self.ss_to_idx = {}
         self.simplify()
-    
+
     @classmethod
     def quick_sum(cls, eintens):
         """Efficiently sum multiple :class:`EinTen` objects at once.
@@ -966,9 +953,7 @@ class EinTen:
         max_indices = []
         for e in eintens:
             if not isinstance(e, EinTen):
-                raise ValueError(
-                    f"Addition with type {type(e)} is not supported."
-                )
+                raise ValueError(f"Addition with type {type(e)} is not supported.")
             offsets.append(current)
             max_idx = e.get_max_idx()
             max_indices.append(max_idx)
@@ -998,10 +983,9 @@ class EinTen:
 
         return cls.from_contraction_list(addends, ss_to_idx=ss_to_idx)
 
-
     def simplify(self):
 
-        simple_map = {} 
+        simple_map = {}
         order = []
 
         for addend in self.addends:
@@ -1016,7 +1000,7 @@ class EinTen:
                         break
                 else:
                     simple_map[key].append(addend)
-        
+
         new_addends = []
         for key in order:
             for addend in simple_map[key]:
@@ -1032,9 +1016,8 @@ class EinTen:
                     break
                 if len(new_addends) > 0:
                     break
-            
-        self.addends = new_addends
 
+        self.addends = new_addends
 
     def evaluate(self, memory_limit=None, **kwargs):
         """Apply the tensor to the arguments
@@ -1042,23 +1025,25 @@ class EinTen:
         """
         if len(self.ss_to_idx) != 0:
             self.to_implicit_notation()
-        with oe.shared_intermediates():
+        if oe is None:
             result = self.addends[0].evaluate(memory_limit=memory_limit, **kwargs)
             for a in self.addends[1:]:
                 result += a.evaluate(memory_limit=memory_limit, **kwargs)
             return result
+        else:
+            with oe.shared_intermediates():
+                result = self.addends[0].evaluate(memory_limit=memory_limit, **kwargs)
+                for a in self.addends[1:]:
+                    result += a.evaluate(memory_limit=memory_limit, **kwargs)
+                return result
 
     def __mul__(self, other):
         if isinstance(other, (int, float, complex)):
-            return EinTen.from_contraction_list(
-                [a * other for a in self.addends], self.ss_to_idx
-            )
+            return EinTen.from_contraction_list([a * other for a in self.addends], self.ss_to_idx)
         elif isinstance(other, EinTen):
 
             if len(self.ss_to_idx) == 0 or len(other.ss_to_idx) == 0:
-                raise ValueError(
-                    f"Cannot multiply not subscripted tensors: {self} and {other}"
-                )
+                raise ValueError(f"Cannot multiply not subscripted tensors: {self} and {other}")
 
             # the other indices are the shifted by the maximum index of self
             start_other_index = self.get_max_idx() + 1
@@ -1098,9 +1083,7 @@ class EinTen:
             return EinTen.from_contraction_list(new_addends, ss_to_idx=ss_to_idx)
 
         else:
-            raise ValueError(
-                f"Multiplication with type {type(other)} is not supported."
-            )
+            raise ValueError(f"Multiplication with type {type(other)} is not supported.")
 
     def __rmul__(self, other):
         return self * other
@@ -1169,9 +1152,7 @@ class EinTen:
                     other_old_to_new_idx,
                     start_internal_index=start_internal_other_index,
                 )
-                start_other_index = max(
-                    start_other_index, new_addend.max_internal_index
-                )
+                start_other_index = max(start_other_index, new_addend.max_internal_index)
                 new_other_addends.append(new_addend)
 
             addends += new_other_addends
@@ -1221,9 +1202,7 @@ class EinTen:
         Set the base tensor to the identity to simplify the operations of the contraction.
         **Note**: the rank of the contraction is never reduced
         """
-        self.addends = [
-            a.set_as_diagonal(base_tensor, to_identity) for a in self.addends
-        ]
+        self.addends = [a.set_as_diagonal(base_tensor, to_identity) for a in self.addends]
 
     def get_addends(self):
         result = []
@@ -1233,9 +1212,7 @@ class EinTen:
             result.append(
                 (
                     addend.prefactor,
-                    EinTen.from_contraction_list(
-                        [addend_copy], ss_to_idx=self.ss_to_idx
-                    ),
+                    EinTen.from_contraction_list([addend_copy], ss_to_idx=self.ss_to_idx),
                 )
             )
         return result
