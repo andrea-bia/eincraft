@@ -1,10 +1,10 @@
-# EinCraft
+# eincraft
 
-EinCraft is an experimental Python library designed to simplify and automate einsum operations in a more intuitive and user-friendly way. In its current alpha state, the library allows you to write einsum operations in a more straightforward and readable format, such as `C.ik = A.ij * B.jk`, rather than using the traditional einsum notation.
+eincraft is an experimental Python library designed to simplify and automate einsum operations in a more intuitive and user-friendly way. In its current alpha state, the library allows you to write einsum operations in a more straightforward and readable format, such as `C.ik = A.ij * B.jk`, rather than using the traditional einsum notation.
 
 ## Installation
 
-To install EinCraft, you can use pip:
+To install eincraft, you can use pip:
 
 ```bash
 pip install .
@@ -19,7 +19,7 @@ pip install .[opt_einsum]
 
 ## Usage
 
-Here's an example of how to use EinCraft:
+Here's an example of how to use eincraft:
 
 ```python
 import numpy as np
