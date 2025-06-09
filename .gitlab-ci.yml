@@ -2,6 +2,7 @@ image: python:3.11
 
 stages:
   - test
+  - publish
 
 test:
   stage: test
@@ -10,3 +11,12 @@ test:
     - pip install .
   script:
     - pytest -v
+
+publish:
+  stage: publish
+  only:
+    - tags
+  script:
+    - pip install --upgrade build twine
+    - python -m build
+    - twine upload dist/* -u __token__ -p "$TWINE_PASSWORD"
