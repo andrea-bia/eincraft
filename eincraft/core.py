@@ -1,5 +1,6 @@
 import numpy as np
 import opt_einsum as oe
+from collections import defaultdict
 
 
 def find_root(key, mapping):
@@ -105,84 +106,63 @@ class EinTenContraction:
 
     def get_map(self, with_count=False):
         """
-        with_count add a count for each tensor, it is needed to distinguish contraction where the same tensor is contracted multiple times
+        Build and cache a map of contractions, optimized for faster grouping.
         """
-        if (
-            self._map is None
-            and not with_count
-            or self._detailed_map is None
-            and with_count
-        ):
-            # create the map
-
-            # get all the idxs
-            idxs = set(
-                [idx for indices, _ in self.indices_and_tensors for idx in indices]
-            )
-
-            tensor_count = {}
-
-            # each index represent a single contraction or a component
-            # cannot be a set because each element is not unique
-            # in particular each element is the tensor name ('' for the output indices)
-            # and the i-th index of that tensor that is involved in the contraction
-            # but contraction could be the sabe ex:
-            #    A_i * A_j * B_k -> C_k
-            #    i and j contractions are the same
-            contractions_map = {s: [] for s in idxs}
-
-            # Process the output indices: record their positions using an empty string as tensor id.
-            for s in self.out_indices:
-                positions = tuple(
-                    i for i, val in enumerate(self.out_indices) if val == s
-                )
-                if with_count:
-                    contractions_map[s].append(("", positions, 0))
-                else:
-                    contractions_map[s].append(("", positions))
-
-            for indices, tensor in self.indices_and_tensors:
-                tensor_count[tensor.name] = tensor_count.get(tensor.name, 0) + 1
-                position_by_index = {}
-                for pos, idx in enumerate(indices):
-                    position_by_index.setdefault(idx, []).append(pos)
-
-                for idx, pos_list in position_by_index.items():
-                    if with_count:
-                        contractions_map[idx].append(
-                            (tensor.name, tuple(pos_list), tensor_count[tensor.name])
-                        )
-                    else:
-                        contractions_map[idx].append((tensor.name, tuple(pos_list)))
-
-            equivalent_deltas = {}
-            for k, v in self.delta.items():
-                root_k = find_root(k, self.delta)
-                if root_k not in equivalent_deltas:
-                    equivalent_deltas[root_k] = [k]
-                equivalent_deltas[root_k].append(v)
-
-            for delta_count, (k, eqv_ks) in enumerate(equivalent_deltas.items()):
-                if with_count:
-                    for v in eqv_ks:
-                        contractions_map[k].append(("_ec_delta", (v,), delta_count))
-                else:
-                    for v in eqv_ks:
-                        contractions_map[k].append(("_ec_delta", (v,)))
-
-            contractions_map = [
-                tuple(sorted(contractions_map[k])) for k in contractions_map
-            ]
-
-            if with_count:
-                self._detailed_map = tuple(sorted(contractions_map))
-            else:
-                self._map = tuple(sorted(contractions_map))
-
-        if with_count:
-            return self._detailed_map
-        else:
+        # 1. Check cache first
+        if not with_count and self._map is not None:
             return self._map
+        if with_count and self._detailed_map is not None:
+            return self._detailed_map
+
+        indices_and_tensors = self.indices_and_tensors
+        out_indices = self.out_indices
+        delta = self.delta
+
+        # Use defaultdict for faster grouping
+        contractions = defaultdict(list)
+
+        # 1. Process output indices in O(n)
+        output_positions = defaultdict(list)
+        for pos, idx in enumerate(out_indices):
+            output_positions[idx].append(pos)
+        for idx, pos_list in output_positions.items():
+            entry = ("", tuple(pos_list), 0) if with_count else ("", tuple(pos_list))
+            contractions[idx].append(entry)
+
+        # 2. Process tensor indices in O(total_indices)
+        tensor_count = defaultdict(int)
+        for indices, tensor in indices_and_tensors:
+            name = tensor.name
+            tensor_count[name] += 1
+            count = tensor_count[name]
+            idx_positions = defaultdict(list)
+            for pos, idx in enumerate(indices):
+                idx_positions[idx].append(pos)
+            for idx, pos_list in idx_positions.items():
+                entry = (name, tuple(pos_list), count) if with_count else (name, tuple(pos_list))
+                contractions[idx].append(entry)
+
+        # 3. Process equivalent deltas
+        eq = defaultdict(list)
+        for k, v in delta.items():
+            root = find_root(k, delta)
+            eq[root].append(k)
+            eq[root].append(v)
+        for delta_count, (root, items) in enumerate(eq.items()):
+            for val in items:
+                entry = ("_ec_delta", (val,), delta_count) if with_count else ("_ec_delta", (val,))
+                contractions[root].append(entry)
+
+        # 4. Build final sorted tuple
+        grouped = [tuple(sorted(entries)) for entries in contractions.values()]
+        result = tuple(sorted(grouped))
+        # 6. Cache the result
+        if with_count:
+            self._detailed_map = result
+        else:
+            self._map = result
+
+        return result
 
     def equal(self, other, check_prefactor=True):
         if check_prefactor and self.prefactor != other.prefactor:
@@ -420,11 +400,11 @@ class EinTenContraction:
             out_indices, indices_and_tensors, prefactor=prefactor, delta=new_delta
         )
 
-    def evaluate(self, **kwargs):
+    def evaluate(self, memory_limit=None, **kwargs):
         return self.evaluate_numpy(**kwargs)
-        # return self.evaluate_opt_einsum(**kwargs)
+        #return self.evaluate_opt_einsum(memory_limit=memory_limit, **kwargs)
 
-    def evaluate_opt_einsum(self, **kwargs):
+    def evaluate_opt_einsum(self, memory_limit=None, **kwargs):
         # Construct the einsum arguments
         # args = [(ten.shape, indices) for indices, ten in self.indices_and_tensors]
         constants = []
@@ -441,14 +421,14 @@ class EinTenContraction:
                 args.append(kwargs[ten.name])
 
         # Flatten the list
-        contract_expression_args.append(self.index)
+        contract_expression_args.append(self.out_indices)
         return self.prefactor * self.get_opt_einsum_path(
-            contract_expression_args, constants
+            contract_expression_args, constants, memory_limit=memory_limit
         )(*args)
 
-    def get_opt_einsum_path(self, args, constants):
+    def get_opt_einsum_path(self, args, constants, memory_limit=None):
         if self.opt_einsum_path is None:
-            self.opt_einsum_path = oe.contract_expression(*args, constants=constants)
+            self.opt_einsum_path = oe.contract_expression(*args, constants=constants, memory_limit=memory_limit)
         return self.opt_einsum_path
 
     def evaluate_numpy(self, **kwargs):
@@ -883,29 +863,42 @@ class EinTen:
             subscripts = (subscripts,)
         self.assign(subscripts, value)
 
+
     def assign(self, subscripts, other):
         if not isinstance(other, EinTen):
             raise ValueError(f"Assignment with type {type(other)} is not supported.")
 
-        max_current_index = -1
-        # now we take in account the subscripts
+        subs_index = {ss: i for i, ss in enumerate(subscripts)}
+
+        max_current_index = max(self.get_max_idx(), max(subs_index.values(), default=-1))
+
+        # build the mapping from other's output indices to the target ones
         other_to_self_indices = {}
         for ss in subscripts:
             for idx in other.ss_to_idx[ss]:
-                other_to_self_indices[idx] = subscripts.index(ss)
-                max_current_index = max(max_current_index, subscripts.index(ss))
+                other_to_self_indices[idx] = subs_index[ss]
 
-        # we should take in account the others indices that are not in the subscripts
-        # in particular some subscripts can refer to more than one index
-        # and we have to take only one of the two
-        max_current_index = max(max_current_index, self.get_max_idx())
         for ss, idxs in other.ss_to_idx.items():
             if ss not in subscripts:
                 max_current_index += 1
                 for idx in idxs:
                     other_to_self_indices[idx] = max_current_index
 
-        new_indices = tuple(subscripts.index(ss) for ss in subscripts)
+        new_indices = tuple(subs_index[ss] for ss in subscripts)
+
+        # Check if we can directly copy the addends without reducing them
+        if (
+            len(set(subscripts)) == len(subscripts)
+            and set(other.ss_to_idx.keys()) == set(subscripts)
+            and all(len(other.ss_to_idx[ss]) == 1 and other.ss_to_idx[ss][0] == subs_index[ss] for ss in subscripts)
+            and all(a.out_indices == new_indices and not a.delta for a in other.addends)
+        ):
+            self.addends = [a.copy() for a in other.addends]
+            self.ss_to_idx = {}
+            self.simplify()
+            return
+
+        # from here we need to actually reduce each addend
 
         if len(set(subscripts)) != len(subscripts):
             # We are updating a diagonal element
@@ -946,7 +939,6 @@ class EinTen:
         else:
             addends = []
 
-            new_indices = tuple(subscripts.index(ss) for ss in subscripts)
             for addend in other.addends:
                 addends.append(
                     addend.reduce(other_to_self_indices, out_indices=new_indices)
@@ -956,32 +948,105 @@ class EinTen:
 
         self.ss_to_idx = {}
         self.simplify()
+    
+    @classmethod
+    def quick_sum(cls, eintens):
+        """Efficiently sum multiple :class:`EinTen` objects at once.
+
+        This avoids repeated shifting of indices when adding tensors
+        sequentially.  Indices for each term are shifted by a precomputed
+        offset based on the maximum internal index of the preceding terms.
+        """
+
+        if not eintens:
+            return cls.empty()
+
+        offsets = []
+        current = 0
+        max_indices = []
+        for e in eintens:
+            if not isinstance(e, EinTen):
+                raise ValueError(
+                    f"Addition with type {type(e)} is not supported."
+                )
+            offsets.append(current)
+            max_idx = e.get_max_idx()
+            max_indices.append(max_idx)
+            current += max_idx + 1
+
+        addends = []
+        ss_to_idx = {}
+
+        for einten, start_other_index, max_idx in zip(eintens, offsets, max_indices):
+            start_internal_other_index = start_other_index + max_idx
+            other_old_to_new_idx = {}
+            for ss, idxs in einten.ss_to_idx.items():
+                for idx in idxs:
+                    other_old_to_new_idx[idx] = start_other_index + idx
+
+            for a in einten.addends:
+                addends.append(
+                    a.reduce(
+                        other_old_to_new_idx,
+                        start_internal_index=start_internal_other_index,
+                    )
+                )
+
+            for ss, idxs in einten.ss_to_idx.items():
+                for idx in idxs:
+                    ss_to_idx[ss] = ss_to_idx.get(ss, []) + [start_other_index + idx]
+
+        return cls.from_contraction_list(addends, ss_to_idx=ss_to_idx)
+
 
     def simplify(self):
 
-        new_addends = []
+        simple_map = {} 
+        order = []
 
         for addend in self.addends:
-            for new_addend in new_addends:
-                if new_addend.equal(addend, check_prefactor=False):
-                    new_addend.prefactor += addend.prefactor
-                    break
+            key = addend.get_map()
+            if key not in simple_map:
+                simple_map[key] = [addend]
+                order.append(key)
             else:
-                new_addends.append(addend)
+                for existing in simple_map[key]:
+                    if existing.equal(addend, check_prefactor=False):
+                        existing.prefactor += addend.prefactor
+                        break
+                else:
+                    simple_map[key].append(addend)
+        
+        new_addends = []
+        for key in order:
+            for addend in simple_map[key]:
+                if addend.prefactor != 0.0:
+                    addend.simplify()
+                    new_addends.append(addend)
 
-        self.addends = [a for a in new_addends if a.prefactor != 0.0]
+        # if the new_addends is empty, we add one to ensure the tensor is not empty
+        if len(new_addends) == 0:
+            for key in order:
+                for addend in simple_map[key]:
+                    new_addends.append(addend)
+                    break
+                if len(new_addends) > 0:
+                    break
+            
+        self.addends = new_addends
 
-        for addend in self.addends:
-            addend.simplify()
 
-    def evaluate(self, **kwargs):
+    def evaluate(self, memory_limit=None, **kwargs):
         """Apply the tensor to the arguments
         Construct the einsum arguments and calling np.einsum
         """
         if len(self.ss_to_idx) != 0:
             self.to_implicit_notation()
         with oe.shared_intermediates():
-            return sum([a.evaluate(**kwargs) for a in self.addends])
+            result = self.addends[0].evaluate(memory_limit=memory_limit, **kwargs)
+            for a in self.addends[1:]:
+                result += a.evaluate(memory_limit=memory_limit, **kwargs)
+            return result
 
     def __mul__(self, other):
         if isinstance(other, (int, float, complex)):
