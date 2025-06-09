@@ -19,3 +19,6 @@ classifiers = [
 dependencies = [
     "numpy",
 ]
+
+[project.urls]
+Homepage = "https://gitlab.com/andrea_bianchi/eincraft"
