@@ -20,6 +20,11 @@ dependencies = [
     "numpy",
 ]
 
+[project.optional-dependencies]
+opt_einsum = [
+    "opt_einsum",
+]
+
 [project.urls]
 Homepage = "https://gitlab.com/andrea_bianchi/eincraft"
 

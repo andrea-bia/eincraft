@@ -1,22 +1,37 @@
-image: python:3.11
-
 stages:
   - test
-  - publish
+  - deploy
 
-test:
+.test_template: &test_definition
   stage: test
-  before_script:
-    - pip install numpy pytest
-    - pip install .
   script:
+    - pip install --upgrade pip
+    - pip install pytest numpy
+    - pip install .
     - pytest -v
 
-publish:
-  stage: publish
+test:3.10:
+  image: python:3.10
+  <<: *test_definition
+
+test:3.11:
+  image: python:3.11
+  <<: *test_definition
+
+test:3.12:
+  image: python:3.12
+  <<: *test_definition
+
+test:3.13:
+  image: python:3.13
+  <<: *test_definition
+
+deploy_pypi:
+  stage: deploy
+  image: python:3.12
+  script:
+    - pip install build twine
+    - python -m build
+    - twine upload --verbose --non-interactive --username __token__ --password "$PYPI_API_TOKEN" dist/*
   only:
     - tags
-  script:
-    - pip install --upgrade build twine
-    - python -m build
-    - twine upload dist/* -u __token__ -p "$TWINE_PASSWORD"
