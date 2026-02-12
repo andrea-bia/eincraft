@@ -1,5 +1,5 @@
 import numpy as np
-from eincraft import EinTen
+from eincraft import EinTen, disable_opt_einsum
 
 
 def test_basic_ops():
@@ -85,3 +85,24 @@ def test_getattr_on_subscripted():
         8.0 * np.einsum("ij,jh,kji,ih", a2, b2, a3, a2)
         + 2.0 * np.einsum("ij,id,idk,jj", a2, b2, a3, a2),
     )
+
+
+def test_evaluate_numpy_with_constant():
+    """Test that evaluate_numpy handles base tensor constants like opt_einsum."""
+    a2 = np.random.rand(3, 3)
+    
+    # Create tensor with constant value
+    A2 = EinTen("A2", (3, 3), constant=a2)
+    
+    # This should work - using constant value without passing in kwargs
+    # Currently fails with KeyError because evaluate_numpy ignores ten.constant
+    try:
+        result = A2.ij.evaluate()
+        assert np.allclose(result, a2)
+    except KeyError as e:
+        # This demonstrates the bug - numpy backend doesn't handle constants
+        assert "A2" in str(e)
+        raise AssertionError(
+            "evaluate_numpy() does not handle base tensor constants. "
+            "It should use ten.constant when available, matching opt_einsum behavior."
+        ) from e

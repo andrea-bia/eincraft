@@ -493,9 +493,15 @@ class EinTenContraction:
         Construct the einsum arguments and calling np.einsum
         """
 
+        def _get_tensor_value(ten: EinTenBaseTensor) -> Any:
+            """Get tensor value from constant or kwargs."""
+            if ten.constant is not None:
+                return ten.constant
+            return kwargs[ten.name]
+
         # Construct the einsum arguments
         args = [
-            (kwargs[ten.name], indices) for indices, ten in self.indices_and_tensors
+            (_get_tensor_value(ten), indices) for indices, ten in self.indices_and_tensors
         ]
         # Flatten the list
         args_flat = [arg for pair in args for arg in pair]
@@ -513,7 +519,7 @@ class EinTenContraction:
                 for indices, ten in self.indices_and_tensors:
                     for i, index in enumerate(indices):
                         if index == idx:
-                            idx_shape[idx] = kwargs[ten.name].shape[i]
+                            idx_shape[idx] = _get_tensor_value(ten).shape[i]
 
             result_shape = []
             for idx in self.out_indices:
