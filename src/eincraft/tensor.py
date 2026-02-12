@@ -619,42 +619,7 @@ class EinTen:
 
     def sum(self, eintens: Sequence["EinTen"]) -> "EinTen":
         """Sum this tensor with a sequence of other tensors."""
-        addends = self.addends
-        ss_to_idx = {ss: idxs.copy() for ss, idxs in self.ss_to_idx.items()}
-        start_other_index = self.get_max_idx() + 1
-
-        for einten in eintens:
-
-            start_internal_other_index = start_other_index
-            other_old_to_new_idx = {}
-            for ss, idxs in einten.ss_to_idx.items():
-                for idx in idxs:
-                    other_old_to_new_idx[idx] = start_other_index + idx
-                    start_internal_other_index = max(
-                        start_internal_other_index, start_other_index + idx
-                    )
-
-            new_other_addends = []
-            for a in einten.addends:
-                new_addend = a.reduce(
-                    other_old_to_new_idx,
-                    start_internal_index=start_internal_other_index,
-                )
-                start_other_index = max(
-                    start_other_index, new_addend.max_internal_index
-                )
-                new_other_addends.append(new_addend)
-
-            addends += new_other_addends
-
-            ss_to_idx = {ss: idxs.copy() for ss, idxs in self.ss_to_idx.items()}
-            for ss, idxs in einten.ss_to_idx.items():
-                for idx in idxs:
-                    ss_to_idx[ss] = (
-                        ss_to_idx.get(ss, []) + [start_other_index + idx]
-                    )
-
-        return EinTen.from_contraction_list(addends, ss_to_idx=ss_to_idx)
+        return self.quick_sum([self, *eintens])
 
     def __radd__(self, other: Union[int, float, complex, "EinTen"]) -> "EinTen":
         return self + other
