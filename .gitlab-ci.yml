@@ -6,7 +6,7 @@ stages:
   stage: test
   script:
     - pip install --upgrade pip
-    - pip install pytest numpy
+    - pip install pytest numpy opt_einsum
     - pip install .
     - pytest -v
 
