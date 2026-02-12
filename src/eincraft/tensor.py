@@ -3,7 +3,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, Sequence
 
 import numpy as np
 
-from eincraft.utils import oe, _quick_sum_prepare, _quick_sum_reduce
+from eincraft import utils
+from eincraft.utils import _quick_sum_prepare, _quick_sum_reduce
 from eincraft.symbol import EinTenBaseTensor
 from eincraft.term import EinTenContraction
 
@@ -503,13 +504,13 @@ class EinTen:
         """
         if len(self.ss_to_idx) != 0:
             self.to_implicit_notation()
-        if oe is None:
+        if utils.oe is None:
             result = self.addends[0].evaluate(memory_limit=memory_limit, **kwargs)
             for a in self.addends[1:]:
                 result += a.evaluate(memory_limit=memory_limit, **kwargs)
             return result
         else:
-            with oe.shared_intermediates():
+            with utils.oe.shared_intermediates():
                 result = self.addends[0].evaluate(memory_limit=memory_limit, **kwargs)
                 for a in self.addends[1:]:
                     result += a.evaluate(memory_limit=memory_limit, **kwargs)

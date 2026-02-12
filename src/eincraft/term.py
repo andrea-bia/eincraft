@@ -3,7 +3,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union, Set
 
 import numpy as np
 
-from eincraft.utils import oe, find_root, _idx_to_str
+from eincraft import utils
+from eincraft.utils import find_root, _idx_to_str
 from eincraft.symbol import EinTenBaseTensor
 
 
@@ -454,13 +455,68 @@ class EinTenContraction:
         )
 
     def evaluate(self, memory_limit: Optional[str] = None, **kwargs: Any) -> Any:
-        if oe is None:
+        # Check if all tensors are constants (no kwargs needed)
+        # In this case, use numpy to avoid opt_einsum issues with zero arguments
+        all_constants = all(
+            ten.constant is not None for _, ten in self.indices_and_tensors
+        )
+        if utils.oe is None or all_constants:
             return self.evaluate_numpy(**kwargs)
         else:
             return self.evaluate_opt_einsum(memory_limit=memory_limit, **kwargs)
 
     def evaluate_opt_einsum(self, memory_limit: Optional[str] = None, **kwargs: Any) -> Any:
-        # Construct the einsum arguments
+        # Check if output indices have duplicates (e.g., diagonal like ii or iij)
+        if len(set(self.out_indices)) != len(self.out_indices):
+            # Handle diagonal output indices similar to evaluate_numpy
+            # First, compute with unique indices, then expand to full shape
+
+            # Build index to shape mapping
+            idx_shape = {}
+            for idx in self.out_indices:
+                for indices, ten in self.indices_and_tensors:
+                    for i, index in enumerate(indices):
+                        if index == idx:
+                            if ten.constant is not None:
+                                idx_shape[idx] = ten.constant.shape[i]
+                            else:
+                                idx_shape[idx] = ten.shape[i]
+
+            result_shape = [idx_shape[idx] for idx in self.out_indices]
+            unique_indices = list(dict.fromkeys(self.out_indices))  # Preserve order, remove duplicates
+
+            # Build contract expression args with unique output indices
+            constants = []
+            contract_expression_args = []
+            args = []
+            for i, (indices, ten) in enumerate(self.indices_and_tensors):
+                if ten.constant is not None:
+                    constants.append(i)
+                    contract_expression_args.append(ten.constant)
+                    contract_expression_args.append(indices)
+                else:
+                    contract_expression_args.append(ten.shape)
+                    contract_expression_args.append(indices)
+                    args.append(kwargs[ten.name])
+
+            contract_expression_args.append(tuple(unique_indices))
+            path = self.get_opt_einsum_path(
+                contract_expression_args, constants, memory_limit=memory_limit
+            )
+
+            if args:
+                result_tmp = self.prefactor * path(*args)
+            else:
+                result_tmp = self.prefactor * path()
+
+            # Create full result array and assign to diagonal
+            result = np.zeros(result_shape, dtype=result_tmp.dtype)
+            result_view = np.einsum(result, list(self.out_indices), list(unique_indices))
+            result_view[:] = result_tmp
+
+            return result
+
+        # Construct the einsum arguments for non-diagonal case
         # args = [(ten.shape, indices) for indices, ten in self.indices_and_tensors]
         constants = []
         contract_expression_args = []
@@ -477,13 +533,18 @@ class EinTenContraction:
 
         # Flatten the list
         contract_expression_args.append(self.out_indices)
-        return self.prefactor * self.get_opt_einsum_path(
+        path = self.get_opt_einsum_path(
             contract_expression_args, constants, memory_limit=memory_limit
-        )(*args)
+        )
+        if args:
+            return self.prefactor * path(*args)
+        else:
+            # All tensors are constants - call without arguments
+            return self.prefactor * path()
 
     def get_opt_einsum_path(self, args: List[Any], constants: List[int], memory_limit: Optional[str] = None) -> Any:
         if self.opt_einsum_path is None:
-            self.opt_einsum_path = oe.contract_expression(
+            self.opt_einsum_path = utils.oe.contract_expression(
                 *args, constants=constants, memory_limit=memory_limit
             )
         return self.opt_einsum_path
