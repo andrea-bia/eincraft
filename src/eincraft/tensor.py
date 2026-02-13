@@ -502,6 +502,8 @@ class EinTen:
 
         Constructs the einsum arguments and calls np.einsum (or opt_einsum).
         """
+        if len(self.addends) == 0:
+            return 0
         if len(self.ss_to_idx) != 0:
             self.to_implicit_notation()
         if utils.oe is None:

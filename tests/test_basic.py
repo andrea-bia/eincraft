@@ -106,3 +106,9 @@ def test_evaluate_numpy_with_constant():
             "evaluate_numpy() does not handle base tensor constants. "
             "It should use ten.constant when available, matching opt_einsum behavior."
         ) from e
+
+
+def test_empty_evaluation():
+    """Test that EinTen.empty() evaluates to 0."""
+    O = EinTen.empty()
+    assert O.evaluate() == 0
